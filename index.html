@@ -118,6 +118,8 @@
   .sheet .yes{color:#1a1405;background:var(--gold);border:1px solid var(--gold);}
   .sheet .yes:disabled{opacity:.6;}
   .sheet .err{color:#f0a35a;margin:10px 0 0;min-height:1em;}
+  .sheet .later{display:block;width:100%;margin-top:10px;padding:8px 4px;font:13px Inter,sans-serif;color:var(--gold);
+    background:transparent;border:0;text-decoration:underline;text-underline-offset:3px;cursor:pointer;}
   footer{text-align:center;color:var(--faint);font-size:11.5px;margin-top:28px;}
 </style>
 </head>
@@ -169,19 +171,21 @@ let resv = {};   // gameId → {uid, name?, at, exp}
 // forever). The reserver can still cancel any time before.
 const OCCASIONS = [{m: 8, d: 7, name: 'mon anniversaire'}, {m: 11, d: 25, name: 'Noël'}];
 const MARGIN_DAYS = 7;
-function nextOccasion(ts){
+// skip = 1: the occasion after the next one (« Je le donnerai plus tard », for
+// people seen only months later). At most ~372 days ahead, within the rules' 400.
+function nextOccasion(ts, skip = 0){
   const t = new Date(ts), today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
-  let best = null;
-  for(const y of [t.getFullYear(), t.getFullYear() + 1]) for(const o of OCCASIONS){
+  const days = [];
+  for(const y of [t.getFullYear(), t.getFullYear() + 1, t.getFullYear() + 2]) for(const o of OCCASIONS){
     const day = new Date(y, o.m, o.d);
-    if(day >= today && (!best || day < best.day)) best = {day, name: o.name};
+    if(day >= today) days.push({day, name: o.name});
   }
-  return best;
+  return days.sort((a, b) => a.day - b.day)[skip];
 }
 // Midnight ending the 7th day after the occasion.
-const expiryFor = ts => { const o = nextOccasion(ts); return new Date(o.day.getFullYear(), o.day.getMonth(), o.day.getDate() + MARGIN_DAYS + 1).getTime(); };
+const expiryFor = (ts, skip = 0) => { const o = nextOccasion(ts, skip); return new Date(o.day.getFullYear(), o.day.getMonth(), o.day.getDate() + MARGIN_DAYS + 1).getTime(); };
 const isActive = r => !!r && r.exp > Date.now();
-const lastDay = exp => new Date(exp - 1).toLocaleDateString('fr-FR', {day: 'numeric', month: 'long'});
+const lastDay = exp => new Date(exp - 1).toLocaleDateString('fr-FR', {day: 'numeric', month: 'long'}).replace(/^1 /, '1er ');
 
 // The owner's devices never see reservations (surprise). A device becomes the
 // owner's by opening the page once with ?proprietaire (link from the Grimoire);
@@ -223,9 +227,9 @@ async function loadReservations(){
   try{ const r = await fetch(FB.db + '/reservations.json', {cache: 'no-store'}); if(r.ok) resv = (await r.json()) || {}; }catch(e){}
 }
 
-async function reserve(id, name){
+async function reserve(id, name, later){
   const a = await fbAuth();
-  const body = {uid: a.uid, at: {'.sv': 'timestamp'}, exp: expiryFor(Date.now())};
+  const body = {uid: a.uid, at: {'.sv': 'timestamp'}, exp: expiryFor(Date.now(), later ? 1 : 0)};
   if(name) body.name = name.slice(0, 40);
   const r = await fetch(`${FB.db}/reservations/${id}.json?auth=${encodeURIComponent(a.id)}`, {method: 'PUT',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
@@ -263,21 +267,30 @@ function openSheet(html, onOk){
 function askGive(g){
   let saved = '';
   try{ saved = localStorage.getItem('giverName') || ''; }catch(e){}
-  const occ = nextOccasion(Date.now());
+  const now = Date.now(), occ = [nextOccasion(now, 0), nextOccasion(now, 1)];
+  let later = false;
+  const until = () => `Ta réservation tient jusqu'au ${lastDay(expiryFor(now, later ? 1 : 0))} (une semaine après ${esc(occ[later ? 1 : 0].name)}) ; tu peux l'annuler avant si tu changes d'avis.`;
   openSheet(`<h3>Offrir « ${esc(g.t)} » ?</h3>
     <p>Il sera retiré de la liste pour les autres, pour éviter les doublons. Je ne le verrai pas 😉<br>
-    Ta réservation tient jusqu'au ${lastDay(expiryFor(Date.now()))} (une semaine après ${esc(occ.name)}) ; tu peux l'annuler avant si tu changes d'avis.</p>
+    <span class="until">${until()}</span></p>
     <label>Ton prénom (facultatif, visible des autres visiteurs)<input type="text" maxlength="40" autocomplete="given-name" value="${esc(saved)}"></label>
     <div class="acts"><button class="no" type="button">Annuler</button><button class="yes" type="button">🎁 Je l'offre</button></div>
+    <button class="later" type="button">Je ne te verrai qu'après ${esc(occ[0].name)} : garder ma réservation plus longtemps</button>
     <p class="err"></p>`, async sheet => {
     const name = sheet.querySelector('input').value.trim();
     remember('giverName', name);
-    try{ await reserve(g.id, name); }
+    try{ await reserve(g.id, name, later); }
     catch(e){
       if(e.message === 'taken'){ render(); throw new Error('Quelqu\'un vient de le réserver juste avant toi.'); }
       throw new Error('La réservation n\'a pas marché. Vérifie ta connexion et réessaie.');
     }
   });
+  const sheet = document.getElementById('sheet'), btn = sheet.querySelector('.later');
+  btn.onclick = () => {
+    later = !later;
+    sheet.querySelector('.until').innerHTML = until();
+    btn.textContent = later ? `Finalement, je te l'offre pour ${occ[0].name}` : `Je ne te verrai qu'après ${occ[0].name} : garder ma réservation plus longtemps`;
+  };
 }
 
 function askUndo(g){
