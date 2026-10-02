@@ -86,6 +86,38 @@
   .opt:not(.rec) .go{background:transparent;color:var(--gold-bright);border:1px solid var(--line-strong);}
   .go:active{filter:brightness(.9);}
   .empty{color:var(--dim);text-align:center;padding:40px 0;}
+  /* Réservations */
+  .give{margin-top:4px;min-height:46px;width:100%;font:600 14px Inter,sans-serif;color:var(--gold-bright);background:transparent;
+    border:1px dashed var(--gold);border-radius:10px;cursor:pointer;}
+  .give:active{background:rgba(217,169,58,0.12);}
+  .res-title{font-family:Cinzel,serif;color:var(--dim);font-size:15px;margin:30px 0 4px;text-align:center;}
+  .res-hint{color:var(--faint);font-size:12px;text-align:center;margin:0 0 10px;}
+  .res-list{display:grid;grid-template-columns:1fr;gap:8px;}
+  @media (min-width:640px){ .res-list{grid-template-columns:1fr 1fr;} }
+  .res-item{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--card);opacity:.6;}
+  .res-item.mine{opacity:1;border-color:rgba(63,191,138,0.55);}
+  .res-item img,.res-item .ph-s{width:92px;aspect-ratio:460/215;object-fit:cover;border-radius:6px;flex:none;background:var(--card-2);filter:grayscale(.6);}
+  .res-item.mine img{filter:none;}
+  .res-txt{flex:1;min-width:0;font-size:13.5px;font-weight:600;}
+  .res-txt small{display:block;font-weight:400;font-size:12px;color:var(--dim);}
+  .res-item.mine .res-txt small{color:var(--low);}
+  .undo{flex:none;font:500 12px Inter,sans-serif;color:var(--dim);background:transparent;border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;cursor:pointer;}
+  .modal{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,0.6);display:flex;align-items:flex-end;justify-content:center;}
+  .modal[hidden]{display:none;}
+  .sheet{width:100%;max-width:460px;background:var(--card);border:1px solid var(--line-strong);border-radius:16px 16px 0 0;
+    padding:18px 16px calc(18px + env(safe-area-inset-bottom));}
+  @media (min-width:640px){ .modal{align-items:center;} .sheet{border-radius:16px;} }
+  .sheet h3{font-family:Cinzel,serif;color:var(--gold-bright);font-weight:600;font-size:18px;margin:0 0 8px;}
+  .sheet p{color:var(--dim);font-size:13.5px;margin:0 0 12px;}
+  .sheet label{display:block;font-size:13px;color:var(--dim);margin-bottom:14px;}
+  .sheet input{display:block;width:100%;margin-top:6px;font:16px Inter,sans-serif;color:var(--text);background:var(--card-2);
+    border:1px solid var(--line-strong);border-radius:8px;padding:11px 12px;}
+  .sheet .acts{display:flex;gap:8px;}
+  .sheet .acts button{flex:1;min-height:46px;font:600 14px Inter,sans-serif;border-radius:10px;cursor:pointer;}
+  .sheet .no{color:var(--dim);background:transparent;border:1px solid var(--line-strong);}
+  .sheet .yes{color:#1a1405;background:var(--gold);border:1px solid var(--gold);}
+  .sheet .yes:disabled{opacity:.6;}
+  .sheet .err{color:#f0a35a;margin:10px 0 0;min-height:1em;}
   footer{text-align:center;color:var(--faint);font-size:11.5px;margin-top:28px;}
 </style>
 </head>
@@ -100,6 +132,7 @@
       <p><b>En boîte :</b> sur Amazon, chez Micromania ou en magasin. Attention à bien prendre la version pour la console indiquée.</p>
       <p><b>Carte cadeau</b> (eShop pour la Switch, Steam pour le PC) : vendue en supermarché, bureau de tabac, magasin de jeux… Prends-en une d'au moins le montant indiqué.</p>
       <p><b>Tu as un compte Steam ?</b> Tu peux aussi l'offrir directement depuis la page du jeu (« Acheter en cadeau »), si on est amis sur Steam.</p>
+      <p><b>Pour éviter les doublons</b>, appuie sur « 🎁 Je l'offre » : le jeu est retiré de la liste pour les autres (je ne le verrai pas 😉). Tu peux annuler depuis le même téléphone.</p>
       <p>Les prix sont relevés automatiquement et peuvent avoir bougé depuis.</p>
     </details>
   </header>
@@ -108,8 +141,10 @@
     <div class="plats" id="plats"></div>
   </div>
   <div class="list" id="list"></div>
-  <footer>Page mise à jour automatiquement depuis mon Grimoire.</footer>
+  <div id="reserved"></div>
+  <footer>Page mise à jour automatiquement depuis mon Grimoire.<span id="ownerNote"></span></footer>
 </div>
+<div class="modal" id="modal" hidden><div class="sheet" role="dialog" aria-modal="true" id="sheet"></div></div>
 <script>
 const TABS = [
   {id: 'top', label: 'Top envies', test: g => !g.up},
@@ -118,6 +153,138 @@ const TABS = [
 ];
 let games = [], tab = 'top', plat = '';
 try{ tab = localStorage.getItem('tab') || 'top'; plat = localStorage.getItem('plat') || ''; }catch(e){}
+
+// ---- Réservations (Firebase Realtime Database, lecture publique) ----
+// Writing needs an anonymous Firebase account, created silently on the first
+// « Je l'offre » and kept on this device: the database rules only let a free
+// game be reserved, and only its reserver cancel it. These values are public
+// by design; the rules are what protects the data.
+const FB = {key: 'AIzaSyDJ23tkVwnj9IfaQOCLe3ses5iA5z4Bo1c',
+  db: 'https://wishlist-mehdi-67acc-default-rtdb.europe-west1.firebasedatabase.app'};
+const ID_OK = /^[a-z0-9-]{1,120}$/;
+let resv = {};   // gameId → {uid, name?, at}
+
+// The owner's devices never see reservations (surprise). A device becomes the
+// owner's by opening the page once with ?proprietaire (link from the Grimoire);
+// ?visiteur turns it back into a normal visitor.
+let owner = false;
+try{
+  const q = new URLSearchParams(location.search);
+  if(q.has('proprietaire')) localStorage.setItem('owner', '1');
+  if(q.has('visiteur')) localStorage.removeItem('owner');
+  owner = localStorage.getItem('owner') === '1';
+  if(q.has('proprietaire') || q.has('visiteur')) history.replaceState(null, '', location.pathname);
+}catch(e){}
+
+function storedAuth(){ try{ return JSON.parse(localStorage.getItem('fbAuth')) || null; }catch(e){ return null; } }
+const myUid = () => (storedAuth() || {}).uid || null;
+
+async function fbAuth(){
+  let a = storedAuth();
+  if(a && a.exp > Date.now() + 60000) return a;
+  let r = null;
+  if(a && a.rt){
+    r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FB.key}`, {method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(a.rt)});
+    if(r.ok){ const j = await r.json(); a = {uid: j.user_id, id: j.id_token, rt: j.refresh_token, exp: Date.now() + (+j.expires_in) * 1000}; }
+  }
+  if(!r || !r.ok){
+    r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FB.key}`, {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: '{"returnSecureToken":true}'});
+    if(!r.ok) throw new Error('auth');
+    const j = await r.json();
+    a = {uid: j.localId, id: j.idToken, rt: j.refreshToken, exp: Date.now() + (+j.expiresIn) * 1000};
+  }
+  remember('fbAuth', JSON.stringify(a));
+  return a;
+}
+
+async function loadReservations(){
+  if(owner) return;
+  try{ const r = await fetch(FB.db + '/reservations.json', {cache: 'no-store'}); if(r.ok) resv = (await r.json()) || {}; }catch(e){}
+}
+
+async function reserve(id, name){
+  const a = await fbAuth();
+  const body = {uid: a.uid, at: {'.sv': 'timestamp'}};
+  if(name) body.name = name.slice(0, 40);
+  const r = await fetch(`${FB.db}/reservations/${id}.json?auth=${encodeURIComponent(a.id)}`, {method: 'PUT',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if(!r.ok){ await loadReservations(); throw new Error(resv[id] ? 'taken' : 'error'); }
+  resv[id] = {uid: a.uid, name: body.name, at: Date.now()};
+}
+
+async function unreserve(id){
+  const a = await fbAuth();
+  const r = await fetch(`${FB.db}/reservations/${id}.json?auth=${encodeURIComponent(a.id)}`, {method: 'DELETE'});
+  if(!r.ok) throw new Error('error');
+  delete resv[id];
+}
+
+const isReserved = g => !owner && !!resv[g.id];
+
+function openSheet(html, onOk){
+  const modal = document.getElementById('modal'), sheet = document.getElementById('sheet');
+  sheet.innerHTML = html;
+  modal.hidden = false;
+  const close = () => { modal.hidden = true; };
+  modal.onclick = e => { if(e.target === modal) close(); };
+  sheet.querySelector('.no').onclick = close;
+  const yes = sheet.querySelector('.yes'), err = sheet.querySelector('.err');
+  yes.onclick = async () => {
+    yes.disabled = true;
+    err.textContent = '';
+    try{ await onOk(sheet); close(); render(); }
+    catch(e){ err.textContent = e.message; yes.disabled = false; }
+  };
+  const input = sheet.querySelector('input');
+  if(input) setTimeout(() => input.focus(), 50);
+}
+
+function askGive(g){
+  let saved = '';
+  try{ saved = localStorage.getItem('giverName') || ''; }catch(e){}
+  openSheet(`<h3>Offrir « ${esc(g.t)} » ?</h3>
+    <p>Il sera retiré de la liste pour les autres, pour éviter les doublons. Je ne le verrai pas 😉</p>
+    <label>Ton prénom (facultatif, visible des autres visiteurs)<input type="text" maxlength="40" autocomplete="given-name" value="${esc(saved)}"></label>
+    <div class="acts"><button class="no" type="button">Annuler</button><button class="yes" type="button">🎁 Je l'offre</button></div>
+    <p class="err"></p>`, async sheet => {
+    const name = sheet.querySelector('input').value.trim();
+    remember('giverName', name);
+    try{ await reserve(g.id, name); }
+    catch(e){
+      if(e.message === 'taken'){ render(); throw new Error('Quelqu\'un vient de le réserver juste avant toi.'); }
+      throw new Error('La réservation n\'a pas marché. Vérifie ta connexion et réessaie.');
+    }
+  });
+}
+
+function askUndo(g){
+  openSheet(`<h3>Annuler ta réservation ?</h3>
+    <p>« ${esc(g.t)} » redeviendra disponible pour les autres.</p>
+    <div class="acts"><button class="no" type="button">Garder</button><button class="yes" type="button">Annuler la réservation</button></div>
+    <p class="err"></p>`, async () => {
+    try{ await unreserve(g.id); }
+    catch(e){ throw new Error('L\'annulation n\'a pas marché. Réessaie dans un instant.'); }
+  });
+}
+
+function reservedHtml(list){
+  if(!list.length) return '';
+  const me = myUid();
+  const day = ts => ts ? new Date(ts).toLocaleDateString('fr-FR', {day: 'numeric', month: 'short'}) : '';
+  return `<h2 class="res-title">Déjà réservés (${list.length})</h2>
+    <p class="res-hint">Quelqu'un a prévu de les offrir.</p>
+    <div class="res-list">${list.map(([g, i]) => {
+      const r = resv[g.id], mine = me && r.uid === me;
+      const who = mine ? 'Réservé par toi' : r.name ? `Réservé par ${esc(r.name)}` : 'Déjà réservé';
+      return `<div class="res-item${mine ? ' mine' : ''}">
+        ${g.img.length ? `<img src="${esc(g.img[0])}" alt="" loading="lazy">` : '<span class="ph-s"></span>'}
+        <span class="res-txt">${esc(g.t)}<small>🎁 ${who}${r.at ? ' · le ' + day(r.at) : ''}</small></span>
+        ${mine ? `<button class="undo" type="button" data-undo="${i}">Annuler</button>` : ''}
+      </div>`;
+    }).join('')}</div>`;
+}
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const euro = v => v.toFixed(2).replace('.', ',') + ' €';
@@ -174,6 +341,7 @@ function cardHtml(g, i){
         <div class="how-h">${blocks.length > 1 ? (bi === 0 ? 'Le plus simple : sur ' : 'Ou sur ') : 'Sur '}${esc(b.label)}</div>
         ${b.opts.map((o, oi) => optHtml(o, b, bi === 0 && oi === 0)).join('')}
       </div>`).join('')}
+      ${!owner && ID_OK.test(g.id) ? `<button class="give" type="button" data-give="${i}">🎁 Je l'offre</button>` : ''}
     </div>
   </article>`;
 }
@@ -182,7 +350,7 @@ function render(){
   const inPlat = g => !plat || g.w.some(b => b.label === plat);
   const tabsEl = document.getElementById('tabs');
   tabsEl.innerHTML = TABS.map(t => {
-    const n = games.filter(g => t.test(g) && inPlat(g)).length;
+    const n = games.filter(g => t.test(g) && inPlat(g) && !isReserved(g)).length;
     return `<button class="tab" role="tab" aria-selected="${t.id === tab}" data-tab="${t.id}">${t.label} <span class="n">${n}</span></button>`;
   }).join('');
   const plats = [...new Set(games.flatMap(g => g.w.map(b => b.label)))].sort((a, b) => a.localeCompare(b, 'fr'));
@@ -190,11 +358,15 @@ function render(){
   document.getElementById('plats').innerHTML = ['', ...plats].map(p =>
     `<button class="chip" aria-pressed="${p === plat}" data-plat="${esc(p)}">${p ? esc(p) : 'Toutes les plateformes'}</button>`).join('');
   const t = TABS.find(x => x.id === tab) || TABS[0];
-  let list = games.map((g, i) => [g, i]).filter(([g]) => t.test(g) && inPlat(g));
+  let list = games.map((g, i) => [g, i]).filter(([g]) => t.test(g) && inPlat(g) && !isReserved(g));
   if(t.id === 'promo') list.sort((a, b) => b[0].pct - a[0].pct);
   document.getElementById('list').innerHTML = list.length
     ? list.map(([g, i]) => cardHtml(g, i)).join('')
     : `<p class="empty">Rien ici pour le moment.</p>`;
+  document.getElementById('reserved').innerHTML = reservedHtml(games.map((g, i) => [g, i]).filter(([g]) => isReserved(g) && inPlat(g)));
+  document.getElementById('ownerNote').textContent = owner ? ' · Mode propriétaire : les réservations te sont cachées.' : '';
+  document.querySelectorAll('[data-give]').forEach(b => b.onclick = () => askGive(games[+b.dataset.give]));
+  document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => askUndo(games[+b.dataset.undo]));
   document.querySelectorAll('#tabs [data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; remember('tab', tab); render(); window.scrollTo({top: 0}); });
   document.querySelectorAll('#plats [data-plat]').forEach(b => b.onclick = () => { plat = b.dataset.plat; remember('plat', plat); render(); });
   // Jaquette introuvable : on essaie l'adresse suivante, puis le titre.
@@ -217,7 +389,12 @@ function render(){
   }catch(e){
     document.getElementById('updated').textContent = 'Liste momentanément indisponible, réessaie dans un instant.';
   }
+  await loadReservations();
   render();
+  // Someone else may reserve meanwhile: refresh when the page comes back, and every minute.
+  const refresh = async () => { if(document.visibilityState === 'visible' && document.getElementById('modal').hidden){ await loadReservations(); render(); } };
+  document.addEventListener('visibilitychange', refresh);
+  setInterval(refresh, 60000);
 })();
 </script>
 </body>
