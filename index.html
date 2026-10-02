@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0910">
+<title>Ma liste d'envies</title>
+<!-- Page publiée par le relais du Grimoire (grimoire_relais.ps1) sur GitHub
+     Pages. Ne pas modifier sur GitHub : le relais la remplace par la version
+     de partage_page.html à chaque changement. Les données viennent de
+     data.json, réécrit à chaque modification de la wishlist. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0910; --card:#16121d; --card-2:#1d1826; --line:rgba(201,162,39,0.18); --line-strong:rgba(201,162,39,0.38);
+    --text:#ece6f3; --dim:#a79fb4; --faint:#776f84; --gold:#d9a93a; --gold-bright:#f0c95a;
+    --sale:#e0465f; --low:#3fbf8a; --drop:#5aa9e6;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 Inter,system-ui,sans-serif;
+    background-image:radial-gradient(ellipse at 50% -10%, rgba(201,162,39,0.10), transparent 60%);
+    background-attachment:fixed;min-height:100vh;}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 16px calc(32px + env(safe-area-inset-bottom));}
+  header{padding:22px 0 10px;text-align:center;}
+  h1{font-family:Cinzel,serif;font-weight:600;color:var(--gold-bright);font-size:clamp(22px,6vw,32px);margin:0;letter-spacing:.02em;}
+  .sub{color:var(--dim);font-size:13px;margin-top:4px;}
+  .tip{margin:12px auto 0;max-width:640px;font-size:12.5px;color:var(--dim);background:var(--card);border:1px dashed var(--line-strong);
+    border-radius:10px;padding:8px 12px;text-align:left;}
+  .tip summary{cursor:pointer;color:var(--gold);font-weight:500;}
+  .tip p{margin:6px 0 0;}
+  /* Onglets + filtres collés en haut au défilement */
+  .bar{position:sticky;top:0;z-index:5;background:rgba(11,9,16,0.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+    margin:0 -16px;padding:10px 16px 8px;border-bottom:1px solid var(--line);}
+  .tabs{display:flex;gap:6px;}
+  .tab{flex:1;min-width:0;font:600 13px Inter,sans-serif;color:var(--dim);background:transparent;border:1px solid var(--line-strong);
+    border-radius:999px;padding:9px 6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .tab .n{opacity:.7;font-weight:500;}
+  .tab[aria-selected="true"]{background:var(--gold);border-color:var(--gold);color:#1a1405;}
+  .plats{display:flex;gap:6px;overflow-x:auto;margin-top:8px;padding-bottom:2px;scrollbar-width:none;}
+  .plats::-webkit-scrollbar{display:none;}
+  .chip{flex:none;font:500 12px Inter,sans-serif;color:var(--dim);background:var(--card);border:1px solid var(--line);
+    border-radius:999px;padding:6px 12px;cursor:pointer;}
+  .chip[aria-pressed="true"]{color:var(--gold-bright);border-color:var(--gold);background:rgba(217,169,58,0.12);}
+  .list{display:grid;grid-template-columns:1fr;gap:14px;margin-top:14px;}
+  @media (min-width:640px){ .list{grid-template-columns:1fr 1fr;} }
+  @media (min-width:980px){ .list{grid-template-columns:1fr 1fr 1fr;} }
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;}
+  .cover{position:relative;aspect-ratio:460/215;background:var(--card-2);}
+  .cover img{width:100%;height:100%;object-fit:cover;display:block;}
+  .cover .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:Cinzel,serif;color:var(--faint);
+    font-size:15px;padding:12px;text-align:center;}
+  .flags{position:absolute;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap;}
+  .flag{font:700 12px Inter,sans-serif;padding:4px 8px;border-radius:6px;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.4);}
+  .flag.sale{background:var(--sale);}
+  .flag.low{background:var(--low);color:#062417;}
+  .flag.drop{background:var(--drop);color:#06192a;}
+  .flag.soon{background:var(--gold);color:#1a1405;}
+  .body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px;flex:1;}
+  .title{font-weight:600;font-size:16px;line-height:1.3;margin:0;}
+  .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--dim);}
+  .stars{color:var(--gold-bright);letter-spacing:1px;font-size:14px;}
+  .stars .off{color:#3a3245;}
+  .genre{font-size:11.5px;color:#e7c46a;background:rgba(217,169,58,0.12);border:1px solid rgba(217,169,58,0.4);border-radius:999px;padding:2px 9px;}
+  .offers{display:flex;flex-direction:column;gap:6px;margin-top:auto;}
+  .offer{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 6px 6px 12px;border:1px solid var(--line);border-radius:10px;
+    background:var(--card-2);color:inherit;text-decoration:none;}
+  .offer:active{background:#251f31;}
+  .store{flex:1;min-width:0;font-size:13px;}
+  .store small{display:block;color:var(--faint);font-size:11px;}
+  .price{text-align:right;font-weight:600;white-space:nowrap;}
+  .price s{display:block;font-weight:400;font-size:11.5px;color:var(--faint);}
+  .price .pct{color:var(--sale);font-size:12px;margin-right:4px;}
+  .go{flex:none;font:600 13px Inter,sans-serif;color:#1a1405;background:var(--gold);border-radius:8px;padding:10px 12px;}
+  .also{font-size:12px;color:var(--faint);}
+  .empty{color:var(--dim);text-align:center;padding:40px 0;}
+  footer{text-align:center;color:var(--faint);font-size:11.5px;margin-top:28px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Ma liste d'envies</h1>
+    <div class="sub" id="updated">Chargement…</div>
+    <details class="tip">
+      <summary>🎁 Offrir un de ces jeux</summary>
+      <p><b>Steam :</b> sur la page du jeu, « Ajouter au panier » puis « Acheter en cadeau » : il arrive directement sur mon compte.</p>
+      <p><b>Switch :</b> une boîte (Amazon, Micromania…) ou une carte cadeau eShop.</p>
+      <p>Les prix sont relevés automatiquement et peuvent avoir bougé depuis.</p>
+    </details>
+  </header>
+  <div class="bar">
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div class="plats" id="plats"></div>
+  </div>
+  <div class="list" id="list"></div>
+  <footer>Page mise à jour automatiquement depuis mon Grimoire.</footer>
+</div>
+<script>
+const STORES = {
+  steam: {name: 'Steam', hint: 'PC, numérique'},
+  eshop: {name: 'eShop', hint: 'Switch, numérique'},
+  amazon: {name: 'Amazon', hint: 'Switch, boîte'},
+  micromania: {name: 'Micromania', hint: 'Switch, boîte'}
+};
+const TABS = [
+  {id: 'top', label: 'Top envies', test: g => !g.up},
+  {id: 'promo', label: 'En promo', test: g => !g.up && (g.o.some(o => o.pct > 0) || g.low)},
+  {id: 'soon', label: 'À venir', test: g => g.up}
+];
+let games = [], tab = 'top', plat = '';
+try{ tab = localStorage.getItem('tab') || 'top'; plat = localStorage.getItem('plat') || ''; }catch(e){}
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const euro = v => v.toFixed(2).replace('.', ',') + ' €';
+const remember = (k, v) => { try{ localStorage.setItem(k, v); }catch(e){} };
+
+function starsHtml(n){
+  return `<span class="stars" aria-label="${n} étoiles sur 5">${'★'.repeat(n)}<span class="off">${'★'.repeat(5 - n)}</span></span>`;
+}
+
+function offerHtml(o){
+  const s = STORES[o.st] || {name: o.st, hint: ''};
+  const price = o.f == null ? '' : o.f === 0 ? 'Gratuit' : euro(o.f);
+  return `<a class="offer" href="${esc(o.url)}" target="_blank" rel="noopener">
+    <span class="store">${esc(s.name)}<small>${esc(s.hint)}</small></span>
+    <span class="price">${o.pct ? `<span class="pct">-${o.pct}%</span>` : ''}${price}${o.pct && o.full ? `<s>${euro(o.full)}</s>` : ''}</span>
+    <span class="go">Voir</span>
+  </a>`;
+}
+
+function cardHtml(g, i){
+  const best = Math.max(0, ...g.o.map(o => o.pct || 0));
+  const flags = [
+    g.up ? `<span class="flag soon">${esc(g.date && g.date !== 'PROCHAINEMENT' ? 'Sortie le ' + g.date : 'Bientôt')}</span>` : '',
+    best ? `<span class="flag sale">-${best}%</span>` : '',
+    g.low ? `<span class="flag low">Plus bas historique</span>` : '',
+    g.drop && !g.low ? `<span class="flag drop">Vient de baisser</span>` : ''
+  ].join('');
+  const sold = new Set(g.o.map(o => o.st === 'steam' ? 'steam' : 'switch'));
+  const others = g.p.filter(p => !(sold.has('steam') && /steam|pc/i.test(p)) && !(sold.has('switch') && /switch/i.test(p)));
+  return `<article class="card">
+    <div class="cover">
+      ${g.img.length ? `<img src="${esc(g.img[0])}" data-i="0" data-g="${i}" alt="" loading="lazy" decoding="async">` : `<div class="ph">${esc(g.t)}</div>`}
+      <div class="flags">${flags}</div>
+    </div>
+    <div class="body">
+      <h2 class="title">${esc(g.t)}</h2>
+      <div class="meta">${starsHtml(g.s)}${g.g.map(x => `<span class="genre">${esc(x)}</span>`).join('')}</div>
+      ${others.length ? `<div class="also">${g.o.length ? 'Aussi sur' : 'Sur'} : ${others.map(esc).join(', ')}</div>` : ''}
+      <div class="offers">${g.o.map(offerHtml).join('')}</div>
+    </div>
+  </article>`;
+}
+
+function render(){
+  const inPlat = g => !plat || g.p.includes(plat);
+  const tabsEl = document.getElementById('tabs');
+  tabsEl.innerHTML = TABS.map(t => {
+    const n = games.filter(g => t.test(g) && inPlat(g)).length;
+    return `<button class="tab" role="tab" aria-selected="${t.id === tab}" data-tab="${t.id}">${t.label} <span class="n">${n}</span></button>`;
+  }).join('');
+  const plats = [...new Set(games.flatMap(g => g.p))].sort((a, b) => a.localeCompare(b, 'fr'));
+  if(plat && !plats.includes(plat)) plat = '';
+  document.getElementById('plats').innerHTML = ['', ...plats].map(p =>
+    `<button class="chip" aria-pressed="${p === plat}" data-plat="${esc(p)}">${p ? esc(p) : 'Toutes les plateformes'}</button>`).join('');
+  const t = TABS.find(x => x.id === tab) || TABS[0];
+  let list = games.map((g, i) => [g, i]).filter(([g]) => t.test(g) && inPlat(g));
+  if(t.id === 'promo') list.sort((a, b) => Math.max(0, ...b[0].o.map(o => o.pct || 0)) - Math.max(0, ...a[0].o.map(o => o.pct || 0)));
+  document.getElementById('list').innerHTML = list.length
+    ? list.map(([g, i]) => cardHtml(g, i)).join('')
+    : `<p class="empty">Rien ici pour le moment.</p>`;
+  document.querySelectorAll('#tabs [data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; remember('tab', tab); render(); window.scrollTo({top: 0}); });
+  document.querySelectorAll('#plats [data-plat]').forEach(b => b.onclick = () => { plat = b.dataset.plat; remember('plat', plat); render(); });
+  // Jaquette introuvable : on essaie l'adresse suivante, puis le titre.
+  document.querySelectorAll('.cover img').forEach(img => img.onerror = () => {
+    const g = games[+img.dataset.g], next = +img.dataset.i + 1;
+    if(g.img[next]){ img.dataset.i = next; img.src = g.img[next]; }
+    else img.outerHTML = `<div class="ph">${esc(g.t)}</div>`;
+  });
+}
+
+(async function(){
+  try{
+    const res = await fetch('data.json?v=' + Date.now(), {cache: 'no-store'});
+    const data = await res.json();
+    games = data.games || [];
+    const d = new Date(data.updated);
+    document.getElementById('updated').textContent = isNaN(d) ? '' :
+      `Mise à jour le ${d.toLocaleDateString('fr-FR', {day: 'numeric', month: 'long'})} à ${d.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'})}`;
+  }catch(e){
+    document.getElementById('updated').textContent = 'Liste momentanément indisponible, réessaie dans un instant.';
+  }
+  render();
+})();
+</script>
+</body>
+</html>
