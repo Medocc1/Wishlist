@@ -66,17 +66,25 @@
   .stars{color:var(--gold-bright);letter-spacing:1px;font-size:14px;}
   .stars .off{color:#3a3245;}
   .genre{font-size:11.5px;color:#e7c46a;background:rgba(217,169,58,0.12);border:1px solid rgba(217,169,58,0.4);border-radius:999px;padding:2px 9px;}
-  .offers{display:flex;flex-direction:column;gap:6px;margin-top:auto;}
-  .offer{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 6px 6px 12px;border:1px solid var(--line);border-radius:10px;
-    background:var(--card-2);color:inherit;text-decoration:none;}
-  .offer:active{background:#251f31;}
-  .store{flex:1;min-width:0;font-size:13px;}
-  .store small{display:block;color:var(--faint);font-size:11px;}
-  .price{text-align:right;font-weight:600;white-space:nowrap;}
+  /* « Comment l'offrir » : un bloc par support voulu, options dans l'ordre recommandé. */
+  .how{display:flex;flex-direction:column;gap:6px;margin-top:auto;}
+  .how + .how{margin-top:6px;}
+  .how-h{font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-top:2px;}
+  .opt{border:1px solid var(--line);border-radius:10px;background:var(--card-2);padding:9px 10px 9px 12px;display:flex;flex-direction:column;gap:7px;}
+  .opt.rec{border-color:rgba(217,169,58,0.6);background:rgba(217,169,58,0.07);}
+  .opt-top{display:flex;align-items:center;gap:10px;}
+  .opt-txt{flex:1;min-width:0;font-size:13.5px;font-weight:600;}
+  .opt-txt small{display:block;font-weight:400;color:var(--dim);font-size:12px;margin-top:1px;}
+  .opt-txt small.warn{color:#f0a35a;}
+  .rec-tag{display:inline-block;font-size:10.5px;font-weight:700;color:#1a1405;background:var(--gold);border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:1px;}
+  .price{text-align:right;font-weight:600;white-space:nowrap;font-size:14px;}
   .price s{display:block;font-weight:400;font-size:11.5px;color:var(--faint);}
   .price .pct{color:var(--sale);font-size:12px;margin-right:4px;}
-  .go{flex:none;font:600 13px Inter,sans-serif;color:#1a1405;background:var(--gold);border-radius:8px;padding:10px 12px;}
-  .also{font-size:12px;color:var(--faint);}
+  .links{display:flex;gap:6px;flex-wrap:wrap;}
+  .go{flex:1 1 auto;min-height:42px;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-align:center;
+    font:600 13px Inter,sans-serif;color:#1a1405;background:var(--gold);border-radius:8px;padding:8px 12px;text-decoration:none;}
+  .opt:not(.rec) .go{background:transparent;color:var(--gold-bright);border:1px solid var(--line-strong);}
+  .go:active{filter:brightness(.9);}
   .empty{color:var(--dim);text-align:center;padding:40px 0;}
   footer{text-align:center;color:var(--faint);font-size:11.5px;margin-top:28px;}
 </style>
@@ -88,8 +96,10 @@
     <div class="sub" id="updated">Chargement…</div>
     <details class="tip">
       <summary>🎁 Offrir un de ces jeux</summary>
-      <p><b>Steam :</b> sur la page du jeu, « Ajouter au panier » puis « Acheter en cadeau » : il arrive directement sur mon compte.</p>
-      <p><b>Switch :</b> une boîte (Amazon, Micromania…) ou une carte cadeau eShop.</p>
+      <p>Chaque jeu indique la façon la plus simple de l'offrir, en premier (« conseillé »).</p>
+      <p><b>En boîte :</b> sur Amazon, chez Micromania ou en magasin. Attention à bien prendre la version pour la console indiquée.</p>
+      <p><b>Carte cadeau</b> (eShop pour la Switch, Steam pour le PC) : vendue en supermarché, bureau de tabac, magasin de jeux… Prends-en une d'au moins le montant indiqué.</p>
+      <p><b>Tu as un compte Steam ?</b> Tu peux aussi l'offrir directement depuis la page du jeu (« Acheter en cadeau »), si on est amis sur Steam.</p>
       <p>Les prix sont relevés automatiquement et peuvent avoir bougé depuis.</p>
     </details>
   </header>
@@ -101,15 +111,9 @@
   <footer>Page mise à jour automatiquement depuis mon Grimoire.</footer>
 </div>
 <script>
-const STORES = {
-  steam: {name: 'Steam', hint: 'PC, numérique'},
-  eshop: {name: 'eShop', hint: 'Switch, numérique'},
-  amazon: {name: 'Amazon', hint: 'Switch, boîte'},
-  micromania: {name: 'Micromania', hint: 'Switch, boîte'}
-};
 const TABS = [
   {id: 'top', label: 'Top envies', test: g => !g.up},
-  {id: 'promo', label: 'En promo', test: g => !g.up && (g.o.some(o => o.pct > 0) || g.low)},
+  {id: 'promo', label: 'En promo', test: g => !g.up && (g.pct > 0 || g.low)},
   {id: 'soon', label: 'À venir', test: g => g.up}
 ];
 let games = [], tab = 'top', plat = '';
@@ -123,26 +127,41 @@ function starsHtml(n){
   return `<span class="stars" aria-label="${n} étoiles sur 5">${'★'.repeat(n)}<span class="off">${'★'.repeat(5 - n)}</span></span>`;
 }
 
-function offerHtml(o){
-  const s = STORES[o.st] || {name: o.st, hint: ''};
-  const price = o.f == null ? '' : o.f === 0 ? 'Gratuit' : euro(o.f);
-  return `<a class="offer" href="${esc(o.url)}" target="_blank" rel="noopener">
-    <span class="store">${esc(s.name)}<small>${esc(s.hint)}</small></span>
-    <span class="price">${o.pct ? `<span class="pct">-${o.pct}%</span>` : ''}${price}${o.pct && o.full ? `<s>${euro(o.full)}</s>` : ''}</span>
-    <span class="go">Voir</span>
-  </a>`;
+const priceHtml = o => o.f == null ? '' : `<span class="price">${o.pct ? `<span class="pct">-${o.pct}%</span>` : ''}${o.f === 0 ? 'Gratuit' : euro(o.f)}${o.pct && o.full ? `<s>${euro(o.full)}</s>` : ''}</span>`;
+const link = (url, label) => `<a class="go" href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`;
+
+// One option of « Comment l'offrir » ; rec = the recommended (first) one.
+function optHtml(o, b, rec){
+  const tag = rec ? '<span class="rec-tag">conseillé</span>' : '';
+  if(o.k === 'box'){
+    const sub = o.warn ? `<small class="warn">⚠ ${esc(o.warn)}</small>`
+      : `<small>Version boîte pour ${esc(b.label)}, sur Amazon, chez Micromania ou en magasin</small>`;
+    return `<div class="opt${rec ? ' rec' : ''}">
+      <div class="opt-top"><span class="opt-txt">En boîte${tag}${sub}</span>${o.f != null ? `<span class="price">dès ${euro(o.f)}</span>` : ''}</div>
+      <div class="links">${o.stores.map(s => link(s.url, s.f != null ? `${esc(s.n)} · ${euro(s.f)}` : `Chercher sur ${esc(s.n)}`)).join('')}</div>
+    </div>`;
+  }
+  if(o.k === 'card'){
+    const sub = o.min ? `Une carte d'au moins ${o.min} € (supermarché, tabac, magasin de jeux…)` : `Du montant du jeu (prix pas encore connu)`;
+    return `<div class="opt${rec ? ' rec' : ''}">
+      <div class="opt-top"><span class="opt-txt">${esc(o.n)}${tag}<small>${sub}</small></span>${priceHtml(o)}</div>
+      <div class="links">${link(o.url, 'Voir le jeu')}</div>
+    </div>`;
+  }
+  return `<div class="opt">
+    <div class="opt-top"><span class="opt-txt">Tu as un compte Steam ?<small>Offre-le directement (« Acheter en cadeau »), si on est amis sur Steam</small></span></div>
+    <div class="links">${link(o.url, 'Offrir sur Steam')}</div>
+  </div>`;
 }
 
 function cardHtml(g, i){
-  const best = Math.max(0, ...g.o.map(o => o.pct || 0));
   const flags = [
     g.up ? `<span class="flag soon">${esc(g.date && g.date !== 'PROCHAINEMENT' ? 'Sortie le ' + g.date : 'Bientôt')}</span>` : '',
-    best ? `<span class="flag sale">-${best}%</span>` : '',
+    g.pct ? `<span class="flag sale">-${g.pct}%</span>` : '',
     g.low ? `<span class="flag low">Plus bas historique</span>` : '',
     g.drop && !g.low ? `<span class="flag drop">Vient de baisser</span>` : ''
   ].join('');
-  const sold = new Set(g.o.map(o => o.st === 'steam' ? 'steam' : 'switch'));
-  const others = g.p.filter(p => !(sold.has('steam') && /steam|pc/i.test(p)) && !(sold.has('switch') && /switch/i.test(p)));
+  const blocks = g.w.filter(b => !plat || b.label === plat);
   return `<article class="card">
     <div class="cover">
       ${g.img.length ? `<img src="${esc(g.img[0])}" data-i="0" data-g="${i}" alt="" loading="lazy" decoding="async">` : `<div class="ph">${esc(g.t)}</div>`}
@@ -151,26 +170,28 @@ function cardHtml(g, i){
     <div class="body">
       <h2 class="title">${esc(g.t)}</h2>
       <div class="meta">${starsHtml(g.s)}${g.g.map(x => `<span class="genre">${esc(x)}</span>`).join('')}</div>
-      ${others.length ? `<div class="also">${g.o.length ? 'Aussi sur' : 'Sur'} : ${others.map(esc).join(', ')}</div>` : ''}
-      <div class="offers">${g.o.map(offerHtml).join('')}</div>
+      ${blocks.map((b, bi) => `<div class="how">
+        <div class="how-h">${blocks.length > 1 ? (bi === 0 ? 'Le plus simple : sur ' : 'Ou sur ') : 'Sur '}${esc(b.label)}</div>
+        ${b.opts.map((o, oi) => optHtml(o, b, bi === 0 && oi === 0)).join('')}
+      </div>`).join('')}
     </div>
   </article>`;
 }
 
 function render(){
-  const inPlat = g => !plat || g.p.includes(plat);
+  const inPlat = g => !plat || g.w.some(b => b.label === plat);
   const tabsEl = document.getElementById('tabs');
   tabsEl.innerHTML = TABS.map(t => {
     const n = games.filter(g => t.test(g) && inPlat(g)).length;
     return `<button class="tab" role="tab" aria-selected="${t.id === tab}" data-tab="${t.id}">${t.label} <span class="n">${n}</span></button>`;
   }).join('');
-  const plats = [...new Set(games.flatMap(g => g.p))].sort((a, b) => a.localeCompare(b, 'fr'));
+  const plats = [...new Set(games.flatMap(g => g.w.map(b => b.label)))].sort((a, b) => a.localeCompare(b, 'fr'));
   if(plat && !plats.includes(plat)) plat = '';
   document.getElementById('plats').innerHTML = ['', ...plats].map(p =>
     `<button class="chip" aria-pressed="${p === plat}" data-plat="${esc(p)}">${p ? esc(p) : 'Toutes les plateformes'}</button>`).join('');
   const t = TABS.find(x => x.id === tab) || TABS[0];
   let list = games.map((g, i) => [g, i]).filter(([g]) => t.test(g) && inPlat(g));
-  if(t.id === 'promo') list.sort((a, b) => Math.max(0, ...b[0].o.map(o => o.pct || 0)) - Math.max(0, ...a[0].o.map(o => o.pct || 0)));
+  if(t.id === 'promo') list.sort((a, b) => b[0].pct - a[0].pct);
   document.getElementById('list').innerHTML = list.length
     ? list.map(([g, i]) => cardHtml(g, i)).join('')
     : `<p class="empty">Rien ici pour le moment.</p>`;
@@ -188,7 +209,8 @@ function render(){
   try{
     const res = await fetch('data.json?v=' + Date.now(), {cache: 'no-store'});
     const data = await res.json();
-    games = data.games || [];
+    // Ignore an older data.json format still served for a minute after an update.
+    games = (data.games || []).filter(g => Array.isArray(g.w));
     const d = new Date(data.updated);
     document.getElementById('updated').textContent = isNaN(d) ? '' :
       `Mise à jour le ${d.toLocaleDateString('fr-FR', {day: 'numeric', month: 'long'})} à ${d.toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'})}`;
