@@ -162,7 +162,26 @@ try{ tab = localStorage.getItem('tab') || 'top'; plat = localStorage.getItem('pl
 const FB = {key: 'AIzaSyDJ23tkVwnj9IfaQOCLe3ses5iA5z4Bo1c',
   db: 'https://wishlist-mehdi-67acc-default-rtdb.europe-west1.firebasedatabase.app'};
 const ID_OK = /^[a-z0-9-]{1,120}$/;
-let resv = {};   // gameId → {uid, name?, at}
+let resv = {};   // gameId → {uid, name?, at, exp}
+
+// A reservation lasts until the next gift occasion + 7 days (user choice B):
+// after that the game is offered again (a forgotten reservation can't block it
+// forever). The reserver can still cancel any time before.
+const OCCASIONS = [{m: 8, d: 7, name: 'mon anniversaire'}, {m: 11, d: 25, name: 'Noël'}];
+const MARGIN_DAYS = 7;
+function nextOccasion(ts){
+  const t = new Date(ts), today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  let best = null;
+  for(const y of [t.getFullYear(), t.getFullYear() + 1]) for(const o of OCCASIONS){
+    const day = new Date(y, o.m, o.d);
+    if(day >= today && (!best || day < best.day)) best = {day, name: o.name};
+  }
+  return best;
+}
+// Midnight ending the 7th day after the occasion.
+const expiryFor = ts => { const o = nextOccasion(ts); return new Date(o.day.getFullYear(), o.day.getMonth(), o.day.getDate() + MARGIN_DAYS + 1).getTime(); };
+const isActive = r => !!r && r.exp > Date.now();
+const lastDay = exp => new Date(exp - 1).toLocaleDateString('fr-FR', {day: 'numeric', month: 'long'});
 
 // The owner's devices never see reservations (surprise). A device becomes the
 // owner's by opening the page once with ?proprietaire (link from the Grimoire);
@@ -206,12 +225,12 @@ async function loadReservations(){
 
 async function reserve(id, name){
   const a = await fbAuth();
-  const body = {uid: a.uid, at: {'.sv': 'timestamp'}};
+  const body = {uid: a.uid, at: {'.sv': 'timestamp'}, exp: expiryFor(Date.now())};
   if(name) body.name = name.slice(0, 40);
   const r = await fetch(`${FB.db}/reservations/${id}.json?auth=${encodeURIComponent(a.id)}`, {method: 'PUT',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-  if(!r.ok){ await loadReservations(); throw new Error(resv[id] ? 'taken' : 'error'); }
-  resv[id] = {uid: a.uid, name: body.name, at: Date.now()};
+  if(!r.ok){ await loadReservations(); throw new Error(isActive(resv[id]) ? 'taken' : 'error'); }
+  resv[id] = {uid: a.uid, name: body.name, at: Date.now(), exp: body.exp};
 }
 
 async function unreserve(id){
@@ -221,7 +240,7 @@ async function unreserve(id){
   delete resv[id];
 }
 
-const isReserved = g => !owner && !!resv[g.id];
+const isReserved = g => !owner && isActive(resv[g.id]);
 
 function openSheet(html, onOk){
   const modal = document.getElementById('modal'), sheet = document.getElementById('sheet');
@@ -244,8 +263,10 @@ function openSheet(html, onOk){
 function askGive(g){
   let saved = '';
   try{ saved = localStorage.getItem('giverName') || ''; }catch(e){}
+  const occ = nextOccasion(Date.now());
   openSheet(`<h3>Offrir « ${esc(g.t)} » ?</h3>
-    <p>Il sera retiré de la liste pour les autres, pour éviter les doublons. Je ne le verrai pas 😉</p>
+    <p>Il sera retiré de la liste pour les autres, pour éviter les doublons. Je ne le verrai pas 😉<br>
+    Ta réservation tient jusqu'au ${lastDay(expiryFor(Date.now()))} (une semaine après ${esc(occ.name)}) ; tu peux l'annuler avant si tu changes d'avis.</p>
     <label>Ton prénom (facultatif, visible des autres visiteurs)<input type="text" maxlength="40" autocomplete="given-name" value="${esc(saved)}"></label>
     <div class="acts"><button class="no" type="button">Annuler</button><button class="yes" type="button">🎁 Je l'offre</button></div>
     <p class="err"></p>`, async sheet => {
@@ -269,18 +290,29 @@ function askUndo(g){
   });
 }
 
+// The visitor's own reservations that ran out: told once, « OK » clears them.
+function expiredHtml(){
+  const me = myUid();
+  if(owner || !me) return '';
+  const mine = games.map((g, i) => [g, i]).filter(([g]) => resv[g.id] && resv[g.id].uid === me && !isActive(resv[g.id]));
+  return mine.map(([g, i]) => `<div class="res-item mine" style="opacity:1;margin-top:14px;">
+      <span class="res-txt">⌛ Ta réservation de « ${esc(g.t)} » a expiré<small style="color:var(--dim);">Le jeu est de nouveau proposé aux autres. Tu peux le réserver à nouveau si tu comptes toujours l'offrir.</small></span>
+      <button class="undo" type="button" data-expired-ok="${i}">OK</button>
+    </div>`).join('');
+}
+
 function reservedHtml(list){
-  if(!list.length) return '';
+  if(!list.length) return expiredHtml();
   const me = myUid();
   const day = ts => ts ? new Date(ts).toLocaleDateString('fr-FR', {day: 'numeric', month: 'short'}) : '';
-  return `<h2 class="res-title">Déjà réservés (${list.length})</h2>
+  return expiredHtml() + `<h2 class="res-title">Déjà réservés (${list.length})</h2>
     <p class="res-hint">Quelqu'un a prévu de les offrir.</p>
     <div class="res-list">${list.map(([g, i]) => {
       const r = resv[g.id], mine = me && r.uid === me;
       const who = mine ? 'Réservé par toi' : r.name ? `Réservé par ${esc(r.name)}` : 'Déjà réservé';
       return `<div class="res-item${mine ? ' mine' : ''}">
-        ${g.img.length ? `<img src="${esc(g.img[0])}" alt="" loading="lazy">` : '<span class="ph-s"></span>'}
-        <span class="res-txt">${esc(g.t)}<small>🎁 ${who}${r.at ? ' · le ' + day(r.at) : ''}</small></span>
+        ${g.img.length ? `<img src="${esc(safeUrl(g.img[0]))}" alt="" loading="lazy">` : '<span class="ph-s"></span>'}
+        <span class="res-txt">${esc(g.t)}<small>🎁 ${who}${r.at ? ' · le ' + day(r.at) : ''}${mine ? ` · jusqu'au ${lastDay(r.exp)}` : ''}</small></span>
         ${mine ? `<button class="undo" type="button" data-undo="${i}">Annuler</button>` : ''}
       </div>`;
     }).join('')}</div>`;
@@ -295,7 +327,9 @@ function starsHtml(n){
 }
 
 const priceHtml = o => o.f == null ? '' : `<span class="price">${o.pct ? `<span class="pct">-${o.pct}%</span>` : ''}${o.f === 0 ? 'Gratuit' : euro(o.f)}${o.pct && o.full ? `<s>${euro(o.full)}</s>` : ''}</span>`;
-const link = (url, label) => `<a class="go" href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`;
+// Only https links reach the page: a « javascript: » one would run on click.
+const safeUrl = u => /^https:\/\//i.test(String(u || '')) ? u : '#';
+const link = (url, label) => `<a class="go" href="${esc(safeUrl(url))}" target="_blank" rel="noopener">${label}</a>`;
 
 // One option of « Comment l'offrir » ; rec = the recommended (first) one.
 function optHtml(o, b, rec){
@@ -331,7 +365,7 @@ function cardHtml(g, i){
   const blocks = g.w.filter(b => !plat || b.label === plat);
   return `<article class="card">
     <div class="cover">
-      ${g.img.length ? `<img src="${esc(g.img[0])}" data-i="0" data-g="${i}" alt="" loading="lazy" decoding="async">` : `<div class="ph">${esc(g.t)}</div>`}
+      ${g.img.length ? `<img src="${esc(safeUrl(g.img[0]))}" data-i="0" data-g="${i}" alt="" loading="lazy" decoding="async">` : `<div class="ph">${esc(g.t)}</div>`}
       <div class="flags">${flags}</div>
     </div>
     <div class="body">
@@ -367,12 +401,17 @@ function render(){
   document.getElementById('ownerNote').textContent = owner ? ' · Mode propriétaire : les réservations te sont cachées.' : '';
   document.querySelectorAll('[data-give]').forEach(b => b.onclick = () => askGive(games[+b.dataset.give]));
   document.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => askUndo(games[+b.dataset.undo]));
+  document.querySelectorAll('[data-expired-ok]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try{ await unreserve(games[+b.dataset.expiredOk].id); }catch(e){ delete resv[games[+b.dataset.expiredOk].id]; }
+    render();
+  });
   document.querySelectorAll('#tabs [data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; remember('tab', tab); render(); window.scrollTo({top: 0}); });
   document.querySelectorAll('#plats [data-plat]').forEach(b => b.onclick = () => { plat = b.dataset.plat; remember('plat', plat); render(); });
   // Jaquette introuvable : on essaie l'adresse suivante, puis le titre.
   document.querySelectorAll('.cover img').forEach(img => img.onerror = () => {
     const g = games[+img.dataset.g], next = +img.dataset.i + 1;
-    if(g.img[next]){ img.dataset.i = next; img.src = g.img[next]; }
+    if(g.img[next]){ img.dataset.i = next; img.src = safeUrl(g.img[next]); }
     else img.outerHTML = `<div class="ph">${esc(g.t)}</div>`;
   });
 }
